@@ -146,6 +146,7 @@ Update:
 
     TestPadInput_PressedAll WRAM_PAD_INPUT, PADF_LEFT
     jr nz, .left_press_done
+        ; If the left button was pressed
         copy [WRAM_Y], 10
         copy [WRAM_X], 10
         copy [WRAM_LINE_LEN], 100
@@ -153,6 +154,7 @@ Update:
     .left_press_done
     TestPadInput_PressedAll WRAM_PAD_INPUT, PADF_RIGHT
     jr nz, .right_press_done
+        ; If the right button way pressed
         copy [WRAM_Y], 10
         copy [WRAM_X], 10
         copy [WRAM_LINE_LEN], 100
@@ -160,6 +162,7 @@ Update:
     .right_press_done
     TestPadInput_PressedAll WRAM_PAD_INPUT, PADF_UP
     jr nz, .up_press_done
+        ; If the up button was pressed
         copy [WRAM_Y], 10
         copy [WRAM_X], 10
         copy [WRAM_LINE_LEN], 100
@@ -167,23 +170,25 @@ Update:
     .up_press_done
     TestPadInput_PressedAll WRAM_PAD_INPUT, PADF_DOWN
     jr nz, .down_press_done
+        ; If the down button was pressed
         copy [WRAM_Y], 10
         copy [WRAM_X], 10
         copy [WRAM_LINE_LEN], 100
         copy [WRAM_COLOR], 2
     .down_press_done
+        ; Check if there is any line dots left to draw
         ld a, [WRAM_LINE_LEN]
         cp 0
-        jr z, .draw_dot_done
-        dec a
-        ld [WRAM_LINE_LEN], a
-        ld a, [WRAM_X]
-        inc a
-        ld [WRAM_X], a
-        ld a, [WRAM_Y]
-        inc a
-        ld [WRAM_Y], a
-        call DrawDot
+        jr z, .draw_dot_done ; LINE_LEN = 0, we're done
+        dec a ; Decrement remaining number of line dots
+        ld [WRAM_LINE_LEN], a ; Save the value back to RAM
+        ld a, [WRAM_X] ; Load the current X coordinate
+        inc a ; Incrememt it
+        ld [WRAM_X], a ; Save it back to RAM
+        ld a, [WRAM_Y] ; Load the current Y coordinate
+        inc a ; Incrememt it
+        ld [WRAM_Y], a ; Save it back to RAM
+        call DrawDot ; Draw a single dot at X, Y
     .draw_dot_done
 
     ; Mark end of VBlank
@@ -210,85 +215,93 @@ DrawDot:
     ld hl, _VRAM8000
     ; Set the Y coordinate tile
     ld a, [WRAM_Y]
+    ; Shift right 3 times to ignore the lowest 3 bits, these set the position within the tile
     srl a
     srl a
     srl a
-    inc a
+    inc a ; Add 1 to our counter for the loop logic to work
     ld c, a
-    ld d, 1 ; 2 bytes per row, 8 rows per tile, 16 tiles per screen row
+    ; Set the offset of 1 row in de so we can add it to hl
+    ld d, 1 ; 2 bytes per row, 8 rows per tile, 16 tiles per screen row = $0100
     ld e, 0
 .set_y_tile
-    dec c
+    dec c ; Check if we need to increment the tile
     jr z, .set_y_tile_done
-    add hl, de
+    add hl, de ; Increment hl by $100 to go up by one row
     jr .set_y_tile
 .set_y_tile_done
     ; Set the Y coordinate within the tile
     ld a, [WRAM_Y]
-    and a, 0b00000111
-    inc a
+    and a, 0b00000111 ; We only care about the lowest 3 bits
+    inc a ; Add 1 to our counter for the loop logic to work
     ld c, a
-    ld d, 0
+    ; Set the offset of one row within the tile in de so we can add it to hl
+    ld d, 0 ; 2 bytes per row within the tile = $0002
     ld e, 2
 .set_y_in_tile
-    dec c
+    dec c ; Check if we need to incrememnt the row in the tile
     jr z, .set_y_in_tile_done
-    add hl, de
+    add hl, de ; Increment hl by 2 to go up by one row within the tile
     jr .set_y_in_tile
 .set_y_in_tile_done
 
     ; Set the X coordinate tile
     ld a, [WRAM_X]
+    ; Shift right 3 times to ignore the lowest 3 bits, these set the position within the tile
     srl a
     srl a
     srl a
-    inc a
+    inc a ; Add 1 to our counter for the loop logic to work
     ld c, a
-    ld d, 0
-    ld e, 2 * 8
+    ld d, 0 ; 2 bytes per row * 8 rows per tile = $0010
+    ld e, $10
 .set_x_tile
-    dec c
+    dec c ; Check if we need to increment the tile
     jr z, .set_x_tile_done
-    add hl, de
+    add hl, de ; Increment hl by $10 to move right a tile
     jr .set_x_tile
 .set_x_tile_done
     ; Set the X coordinate in the tile
     ld a, [WRAM_X]
-    and a, 0b00000111
-    inc a
+    and a, 0b00000111 ; We only care about the lowest 3 bits 
+    inc a ; Add 1 to our counter for the loop logic to work
+    ; Bit 0 represents the 7th pixel and bit 7 represents the 0th pixel in the tile
+    ; We need to set the (7 - a)th bit
     ld c, a
-    ld a, 0b10000000
+    ld a, 0b10000000 ; Start with the 7th bit
 .set_x_in_tile
-    dec c
+    dec c ; While c is greater than 0
     jr z, .set_x_in_tile_done
-    srl a
+    srl a ; Shift the bit right by 1
     jr .set_x_in_tile
 .set_x_in_tile_done
-    ld c, a
-    cpl 
-    ld d, a
+    ld c, a ; Save this bit in c
+    cpl ; Invert it
+    ld d, a ; Save this inverse in d
     ld a, [WRAM_COLOR]
-    ld e, a
+    ld e, a ; Save the target color in e
 
     ; Set the correct bit in the first byte of the color pair
     ld a, [hl]
+    ; Look at the 0th bit in the target color
     bit 0, e
-    jr z, .erase_bit_0
-    or a, c
+    jr z, .erase_bit_0 ; if it's 0, we erase it
+    or a, c ; Otherwise, we add it
     jr .draw_bit_0_done
 .erase_bit_0
-    and a, d
+    and a, d ; And with the inverse of the set bit to erase that bit
 .draw_bit_0_done
     ld [hl], a
     ; Set the correct bit in the second byte of the color pair
     inc hl
     ld a, [hl]
+    ; Repeat the same process with the 1st bit of the target color
     bit 1, e
-    jr z, .erase_bit_1
-    or a, c
+    jr z, .erase_bit_1 ; if it's 0, we erase it
+    or a, c ; Otherwise, we add it
     jr .draw_bit_1_done
 .erase_bit_1
-    and a, d
+    and a, d ; And with the inverse of the set bit to erase that bit
 .draw_bit_1_done
-    ld [hl], a
-    ret
+    ld [hl], a ; Save the modified tile back to VRAM
+    ret ; Done
