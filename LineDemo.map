@@ -1,0 +1,43 @@
+SUMMARY:
+	ROM0: 535 bytes used / 32233 free
+
+ROM0 bank #0:
+	SECTION: $0000-$0012 ($0013 bytes) ["main"]
+	         $0000 = main
+	         $0000 = main.wait_vblank_u1
+	         $000e = main.loop
+	EMPTY: $0013-$003f ($002d bytes)
+	SECTION: $0040-$0047 ($0008 bytes) ["vblank_interrupt"]
+	EMPTY: $0048-$00ff ($00b8 bytes)
+	SECTION: $0100-$014f ($0050 bytes) ["header"]
+	         $0100 = entrypoint
+	SECTION: $0150-$02fb ($01ac bytes) ["LineDemo"]
+	         $0150 = Init
+	         $0177 = Init.load_tile_u1
+	         $0182 = Init.erase_tile_u2
+	         $0194 = Init.set_tile_u3
+	         $0194 = Init.outer_loop_u3
+	         $01b0 = Update
+	         $01b4 = Update.wait_vblank
+	         $020f = Update.left_press_done
+	         $022a = Update.right_press_done
+	         $0245 = Update.up_press_done
+	         $0260 = Update.down_press_done
+	         $027c = Update.draw_dot_done
+	         $0282 = InitOAM
+	         $028a = InitOAM.init_oam
+	         $0291 = DrawDot
+	         $02a3 = DrawDot.set_y_tile
+	         $02a9 = DrawDot.set_y_tile_done
+	         $02b4 = DrawDot.set_y_in_tile
+	         $02ba = DrawDot.set_y_in_tile_done
+	         $02c9 = DrawDot.set_x_tile
+	         $02cf = DrawDot.set_x_tile_done
+	         $02d8 = DrawDot.set_x_in_tile
+	         $02df = DrawDot.set_x_in_tile_done
+	         $02ee = DrawDot.erase_bit_0
+	         $02ef = DrawDot.draw_bit_0_done
+	         $02f9 = DrawDot.erase_bit_1
+	         $02fa = DrawDot.draw_bit_1_done
+	EMPTY: $02fc-$7fff ($7d04 bytes)
+	TOTAL EMPTY: $7de9 bytes

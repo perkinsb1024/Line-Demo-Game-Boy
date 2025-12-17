@@ -1,0 +1,294 @@
+include "utils.rgbinc"
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+def TILES_COUNT                     equ (384)
+def BYTES_PER_TILE                  equ (16)
+def TILES_BYTE_SIZE                 equ (TILES_COUNT * BYTES_PER_TILE)
+def TILEMAP_BYTE_SIZE               equ (1024)
+def GRAPHICS_DATA_SIZE              equ (TILES_BYTE_SIZE + TILEMAP_BYTE_SIZE + TILEMAP_BYTE_SIZE)
+def GRAPHICS_DATA_ADDRESS_END       equ ($8000)
+def GRAPHICS_DATA_ADDRESS_START     equ (GRAPHICS_DATA_ADDRESS_END - GRAPHICS_DATA_SIZE)
+
+def WINDOW_X                        equ 7
+def WINDOW_Y                        equ 64
+def WINDOW_HIDDEN_Y                 equ 145
+
+; WRAM Variables
+rsset _RAM
+
+def WRAM_IS_VBLANK                  rb 1
+def WRAM_PAD_INPUT                  rb sizeof_PAD_INPUT
+def WRAM_X                          rb 1
+def WRAM_Y                          rb 1
+def WRAM_COLOR                      rb 1
+
+def WRAM_LINE_LEN                   rb 1
+
+def WRAM_END                        rb 0
+
+; sanity checks
+def WRAM_USAGE                      equ (WRAM_END - _RAM)
+println "WRAM usage: {d:WRAM_USAGE} bytes"
+assert WRAM_USAGE <= $2000, "Too many bytes used in WRAM"
+
+
+; load the graphics data from ROM to VRAM
+macro LoadGraphicsDataIntoVRAM
+    ld de, GRAPHICS_DATA_ADDRESS_START
+    ld hl, _VRAM8000
+    .load_tile\@
+        ld a, [de]
+        inc de
+        ld [hli], a
+        ld a, d
+        cp a, high(GRAPHICS_DATA_ADDRESS_END)
+        jr nz, .load_tile\@
+endm
+
+macro ClearTileMap0
+    ld hl, _SCRN0
+.erase_tile\@
+    xor a
+    ld [hli], a
+    ld a, h
+    cp a, high(_SCRN1)
+    jr nz, .erase_tile\@
+endm
+
+macro InitLineCanvas
+    ld b, 0
+    ld c, 0
+    ld d, 16
+    ld e, 16
+    ld hl, _SCRN0
+.outer_loop\@
+.set_tile\@
+    ld a, c
+    ld [hli], a
+    inc a
+    ld c, a
+    dec d
+    jr nz, .set_tile\@
+    ld d, 16
+    ld a, c
+    ld c, 16
+    add hl, bc
+    ld c, a
+    dec e
+    jr nz, .outer_loop\@
+endm
+
+macro TurnOffLCD
+    xor a
+    ld [rLCDC], a
+endm
+
+macro TurnOnLCD
+    ld a, LCDCF_ON | LCDCF_WIN9C00 | LCDCF_BG8000 | LCDCF_BG9800 | LCDCF_OBJ8 | LCDCF_OBJON | LCDCF_BGON | LCDCF_WINON
+    ld [rLCDC], a
+endm
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+section "vblank_interrupt", rom0[$0040]
+    push af
+    copy [WRAM_IS_VBLANK], 1
+    pop af
+    reti
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+section "LineDemo", rom0
+
+Init:
+    ; init the palette
+    ld a, %11100100
+    ld [rBGP], a
+    ld [rOBP0], a
+    ld a, %00011110
+    ld [rOBP1], a
+
+    ; Set screen scroll
+    xor a
+    ld [rSCX], a
+    ld [rSCY], a
+    copy [rWX], WINDOW_X
+    copy [rWY], WINDOW_HIDDEN_Y
+
+    ; Init Graphics
+    call InitOAM
+    LoadGraphicsDataIntoVRAM
+    ClearTileMap0
+    InitLineCanvas
+
+    ; set the graphics parameters and turn back LCD on
+    TurnOnLCD
+
+    ; enable interrupts
+    ld a, IEF_VBLANK
+    ld [rIE], a
+    ei
+
+Update:
+    ld hl, WRAM_IS_VBLANK
+    xor a
+    .wait_vblank
+        halt
+        cp a, [hl]
+        jr z, .wait_vblank
+        ld [hl], a
+
+    ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+    ; vblank
+    ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+    UpdatePadInput WRAM_PAD_INPUT
+
+    TestPadInput_PressedAll WRAM_PAD_INPUT, PADF_LEFT
+    jr nz, .left_press_done
+        copy [WRAM_Y], 10
+        copy [WRAM_X], 10
+        copy [WRAM_LINE_LEN], 100
+        copy [WRAM_COLOR], 3
+    .left_press_done
+    TestPadInput_PressedAll WRAM_PAD_INPUT, PADF_RIGHT
+    jr nz, .right_press_done
+        copy [WRAM_Y], 10
+        copy [WRAM_X], 10
+        copy [WRAM_LINE_LEN], 100
+        copy [WRAM_COLOR], 1
+    .right_press_done
+    TestPadInput_PressedAll WRAM_PAD_INPUT, PADF_UP
+    jr nz, .up_press_done
+        copy [WRAM_Y], 10
+        copy [WRAM_X], 10
+        copy [WRAM_LINE_LEN], 100
+        copy [WRAM_COLOR], 0
+    .up_press_done
+    TestPadInput_PressedAll WRAM_PAD_INPUT, PADF_DOWN
+    jr nz, .down_press_done
+        copy [WRAM_Y], 10
+        copy [WRAM_X], 10
+        copy [WRAM_LINE_LEN], 100
+        copy [WRAM_COLOR], 2
+    .down_press_done
+        ld a, [WRAM_LINE_LEN]
+        cp 0
+        jr z, .draw_dot_done
+        dec a
+        ld [WRAM_LINE_LEN], a
+        ld a, [WRAM_X]
+        inc a
+        ld [WRAM_X], a
+        ld a, [WRAM_Y]
+        inc a
+        ld [WRAM_Y], a
+        call DrawDot
+    .draw_dot_done
+
+    ; Mark end of VBlank
+    copy [WRAM_IS_VBLANK], 0
+    ret
+
+export Init, Update
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+InitOAM:
+    ; clear the OAM
+    ld c, OAM_COUNT
+    ld hl, _OAMRAM + OAMA_Y
+    ld de, sizeof_OAM_ATTRS
+    .init_oam
+        ld [hl], 0
+        add hl, de
+        dec c
+        jr nz, .init_oam
+    ret
+
+DrawDot:
+    ld hl, _VRAM8000
+    ; Set the Y coordinate tile
+    ld a, [WRAM_Y]
+    srl a
+    srl a
+    srl a
+    inc a
+    ld c, a
+    ld d, 1 ; 2 bytes per row, 8 rows per tile, 16 tiles per screen row
+    ld e, 0
+.set_y_tile
+    dec c
+    jr z, .set_y_tile_done
+    add hl, de
+    jr .set_y_tile
+.set_y_tile_done
+    ; Set the Y coordinate within the tile
+    ld a, [WRAM_Y]
+    and a, 0b00000111
+    inc a
+    ld c, a
+    ld d, 0
+    ld e, 2
+.set_y_in_tile
+    dec c
+    jr z, .set_y_in_tile_done
+    add hl, de
+    jr .set_y_in_tile
+.set_y_in_tile_done
+
+    ; Set the X coordinate tile
+    ld a, [WRAM_X]
+    srl a
+    srl a
+    srl a
+    inc a
+    ld c, a
+    ld d, 0
+    ld e, 2 * 8
+.set_x_tile
+    dec c
+    jr z, .set_x_tile_done
+    add hl, de
+    jr .set_x_tile
+.set_x_tile_done
+    ; Set the X coordinate in the tile
+    ld a, [WRAM_X]
+    and a, 0b00000111
+    inc a
+    ld c, a
+    ld a, 0b10000000
+.set_x_in_tile
+    dec c
+    jr z, .set_x_in_tile_done
+    srl a
+    jr .set_x_in_tile
+.set_x_in_tile_done
+    ld c, a
+    cpl 
+    ld d, a
+    ld a, [WRAM_COLOR]
+    ld e, a
+
+    ; Set the correct bit in the first byte of the color pair
+    ld a, [hl]
+    bit 0, e
+    jr z, .erase_bit_0
+    or a, c
+    jr .draw_bit_0_done
+.erase_bit_0
+    and a, d
+.draw_bit_0_done
+    ld [hl], a
+    ; Set the correct bit in the second byte of the color pair
+    inc hl
+    ld a, [hl]
+    bit 1, e
+    jr z, .erase_bit_1
+    or a, c
+    jr .draw_bit_1_done
+.erase_bit_1
+    and a, d
+.draw_bit_1_done
+    ld [hl], a
+    ret
